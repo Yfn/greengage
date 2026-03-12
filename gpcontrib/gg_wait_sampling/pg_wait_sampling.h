@@ -5,7 +5,7 @@
  * Copyright (c) 2015-2025, Postgres Professional
  *
  * IDENTIFICATION
- *	  contrib/pg_wait_sampling/pg_wait_sampling.h
+ *	  gpcontrib/gg_wait_sampling/pg_wait_sampling.h
  */
 #ifndef __PG_WAIT_SAMPLING_H__
 #define __PG_WAIT_SAMPLING_H__
@@ -24,9 +24,17 @@
 
 typedef struct
 {
+	uint64		queryId;	/* queryId from Query */
+	int32		tmid;		/* transaction time */
+	int32		ssid;		/* session id */
+	int32		ccnt;		/* command count */
+} QueryItem;
+
+typedef struct
+{
 	int			pid;
 	uint32		wait_event_info;
-	uint64		queryId;
+	QueryItem	query_item;
 	uint64		count;
 } ProfileItem;
 
@@ -34,7 +42,7 @@ typedef struct
 {
 	int			pid;
 	uint32		wait_event_info;
-	uint64		queryId;
+	QueryItem	query_item;
 	TimestampTz ts;
 } HistoryItem;
 
@@ -70,7 +78,7 @@ extern bool pgws_sampleCpu;
 
 /* pg_wait_sampling.c */
 extern shm_mq *pgws_collector_mq;
-extern uint64 *pgws_proc_queryids;
+extern QueryItem *pgws_proc_query_items;
 extern CollectorShmqHeader *pgws_collector_hdr;
 
 extern LWLock *collector_lock;
