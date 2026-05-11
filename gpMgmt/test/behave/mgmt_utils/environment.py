@@ -20,11 +20,16 @@ def before_all(context):
 
 def before_feature(context, feature):
     # we should be able to run gpexpand without having a cluster initialized
-    tags_to_skip = ['gpexpand', 'gpaddmirrors', 'gpstate', 'gpmovemirrors',
-                    'gpconfig', 'gpssh-exkeys', 'gpstop', 'gpinitsystem', 'cross_subnet',
-                    'gplogfilter', 'ggrebalance_basics', 'ggrebalance_shrink', 'ggrebalance_rebalance', 'ggrebalance_misc_options']
+    tags_to_skip = ['gpexpand', 'gpaddmirrors', 'gpstate',
+                    'gpssh-exkeys', 'gpinitsystem', 'cross_subnet',
+ 			'ggrebalance_basics', 'ggrebalance_shrink', 'ggrebalance_rebalance', 'ggrebalance_misc_options']
     if set(context.feature.tags).intersection(tags_to_skip):
         return
+
+    if not hasattr(context, "cluster_created"):
+        context.cluster_created = True
+        from test.behave_utils.ci.fixtures import init_cluster
+        use_fixture(init_cluster, context)
 
     drop_database_if_exists(context, 'testdb')
     drop_database_if_exists(context, 'bkdb')

@@ -1386,7 +1386,11 @@ addTotalQueueDuration(ResGroupData *group)
 	if (group == NULL)
 		return;
 
-	group->totalQueuedTimeMs += (groupWaitEnd - groupWaitStart);
+	/*
+	 * Note: groupWaitEnd and groupWaitStart are in microseconds, but
+	 * totalQueuedTimeMs is in milliseconds. We should convert it here.
+	 */
+	group->totalQueuedTimeMs += ((groupWaitEnd - groupWaitStart) / 1000);
 }
 
 /*
@@ -1544,9 +1548,6 @@ ShouldUnassignResGroup(void)
 void
 AssignResGroupOnCoordinator(void)
 {
-	ResGroupSlotData	*slot;
-	ResGroupInfo		groupInfo;
-
 	Assert(Gp_role == GP_ROLE_DISPATCH);
 
 	/*
@@ -1555,6 +1556,8 @@ AssignResGroupOnCoordinator(void)
 	 */
 	if (shouldBypassQuery(debug_query_string))
 	{
+		ResGroupInfo		groupInfo;
+
 		/*
 		 * If it's the first query in the connection (make sure tab completion
 		 * is not triggered otherwise it will run some implicit query before
@@ -1587,6 +1590,20 @@ AssignResGroupOnCoordinator(void)
 
 		return;
 	}
+
+	AttachResGroupSlot();
+}
+
+/*
+ * Acquire a slot from the resource group and attach the process to them.
+ */
+void
+AttachResGroupSlot(void)
+{
+	ResGroupSlotData	*slot;
+	ResGroupInfo		groupInfo;
+
+	Assert(Gp_role == GP_ROLE_DISPATCH);
 
 	PG_TRY();
 	{
@@ -2720,8 +2737,6 @@ shouldBypassQuery(const char *query_string)
 	MemoryContext oldcontext = NULL;
 	MemoryContext tmpcontext = NULL;
 	List *parsetree_list; 
-	ListCell *parsetree_item;
-	Node *parsetree;
 	bool		bypass;
 
 	if (gp_resource_group_bypass)
@@ -2763,7 +2778,27 @@ shouldBypassQuery(const char *query_string)
 
 	/* Only bypass SET/RESET/SHOW command and SELECT with only catalog tables
 	 * for now */
-	bypass = true;
+	bypass = ShouldBypassQueryFromParseTree(parsetree_list);
+
+	list_free_deep(parsetree_list);
+
+	if (tmpcontext)
+		MemoryContextDelete(tmpcontext);
+
+	return bypass;
+}
+
+/*
+ * Should the query bypass the resgroup assignment?
+ * Basically SET/SHOW and SELECT from catalog tables
+ * are allowed to bypass.
+ */
+bool
+ShouldBypassQueryFromParseTree(List *parsetree_list)
+{
+	ListCell *parsetree_item;
+	Node *parsetree;
+
 	foreach(parsetree_item, parsetree_list)
 	{
 		parsetree = (Node *) lfirst(parsetree_item);
@@ -2774,25 +2809,15 @@ shouldBypassQuery(const char *query_string)
 		if (IsA(parsetree, SelectStmt))
 		{
 			if (!shouldBypassSelectQuery(parsetree))
-			{
-				bypass = false;
-				break;
-			}
+				return false;
 		}
 		else if (nodeTag(parsetree) != T_VariableSetStmt &&
 			nodeTag(parsetree) != T_VariableShowStmt)
 		{
-			bypass = false;
-			break;
+			return false;
 		}
 	}
-
-	list_free_deep(parsetree_list);
-
-	if (tmpcontext)
-		MemoryContextDelete(tmpcontext);
-
-	return bypass;
+	return true;
 }
 
 /*
@@ -3701,6 +3726,31 @@ ResGroupGetGroupIdBySessionId(int sessionId)
 }
 
 /*
+ * is resource group bypassed by session id
+ */
+bool
+IsResGroupBypassedBySessionId(int sessionId)
+{
+	bool bypassed = false;
+	SessionState *curSessionState;
+
+	LWLockAcquire(SessionStateLock, LW_SHARED);
+	curSessionState = AllSessionStateEntries->usedList;
+	while (curSessionState != NULL)
+	{
+		if (curSessionState->sessionId == sessionId)
+		{
+			bypassed = curSessionState->bypassResGroupId != InvalidOid;
+			break;
+		}
+		curSessionState = curSessionState->next;
+	}
+	LWLockRelease(SessionStateLock);
+
+	return bypassed;
+}
+
+/*
  * In resource group mode, how much memory should a query take in bytes.
  */
 uint64
@@ -3797,9 +3847,20 @@ check_and_unassign_from_resgroup(PlannedStmt* stmt)
 	pgstat_report_resgroup(bypassedGroup->groupId);
 	bypassedSlot.group = groupInfo.group;
 	bypassedSlot.groupId = groupInfo.groupId;
+	/*
+	 * SessionStateLock is required since IsResGroupBypassedBySessionId will
+	 * traverse the current session array and check corresponding
+	 * bypassResGroupId with shared lock on SessionStateLock.
+	 */
+	LWLockAcquire(SessionStateLock, LW_EXCLUSIVE);
+	/* Share bypassed group id for prohibit moving. */
+	MySessionState->bypassResGroupId = groupInfo.groupId;
+	LWLockRelease(SessionStateLock);
 
 	cgroupOpsRoutine->attachcgroup(bypassedGroup->groupId, MyProcPid,
 								   bypassedGroup->caps.cpuMaxPercent == CPU_MAX_PERCENT_DISABLED);
+
+	SIMPLE_FAULT_INJECTOR("check_and_unassign_from_resgroup_entry_bypassed");
 }
 
 /*
