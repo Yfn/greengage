@@ -36,6 +36,15 @@ typedef enum GangType
 	GANGTYPE_PRIMARY_WRITER		/* the N-gang that can update the segment dbs */
 } GangType;
 
+typedef struct GpscQueryKey
+{
+	int tmid; /* transaction time */
+	int ssid; /* session id */
+	int ccnt; /* command count */
+	int nesting_level;
+	uintptr_t query_desc_addr;
+} GpscQueryKey;
+
 /*
  * MPP Plan Slice information
  *
@@ -276,6 +285,8 @@ typedef struct QueryDesc
 
 	/* The overall memory consumption account (i.e., outside of an operator) */
 	MemoryAccountIdType memoryAccountId;
+	/* GP Stats Collector */
+	GpscQueryKey *gpsc_query_key;
 } QueryDesc;
 
 /* in pquery.c */

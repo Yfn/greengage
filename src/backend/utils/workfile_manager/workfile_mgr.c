@@ -154,6 +154,9 @@ static void unpin_workset(workfile_set *work_set);
 
 static bool proc_exit_hook_registered = false;
 
+static uint64 total_bytes_written = 0;
+static uint64 total_files_created = 0;
+
 Datum gp_workfile_mgr_cache_entries(PG_FUNCTION_ARGS);
 Datum gp_workfile_mgr_used_diskspace(PG_FUNCTION_ARGS);
 
@@ -940,4 +943,25 @@ WorkfileSegspace_GetSize(void)
 	LWLockRelease(WorkFileManagerLock);
 
 	return result;
+}
+
+uint64
+WorkfileTotalBytesWritten(void)
+{
+	return total_bytes_written;
+}
+
+uint64
+WorkfileTotalFilesCreated(void)
+{
+	return total_files_created;
+}
+
+uint64
+WorkfileResetBackendStats(void)
+{
+	total_bytes_written = 0;
+	total_files_created = 0;
+
+	return 0;
 }
