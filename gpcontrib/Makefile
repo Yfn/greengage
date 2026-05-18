@@ -26,6 +26,7 @@ ifeq "$(enable_debug_extensions)" "yes"
                gp_error_handling \
                gp_subtransaction_overflow \
                gp_check_functions \
+               gp_stats_collector \
                temp_tables_stat \
                credcheck
 else
@@ -40,6 +41,7 @@ else
                gp_error_handling \
                gp_subtransaction_overflow \
                gp_check_functions \
+               gp_stats_collector \
                temp_tables_stat \
                credcheck
 endif
